@@ -76,7 +76,7 @@ class HTTPParser(asyncio.BufferedProtocol):
 
     def buffer_updated(self, nbytes: int) -> None:
         data = self.buffer_data[:nbytes]
-        self.buffer_data_size += nbytes
+
         if self.request_state is HTTPRequestState.CONNECTING:
 
             set_header(data)
