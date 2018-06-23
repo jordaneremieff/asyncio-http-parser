@@ -133,9 +133,9 @@ class ASGIConnection:
                 self.state = ASGIConnectionState.SENDING_BODY
             else:
                 self.state = ASGIConnectionState.CLOSED
+                # self.transport.close()
 
 
-@dataclass
 class HTTPProtocol(HTTPBufferedProtocol):
 
     scope: dict = None
