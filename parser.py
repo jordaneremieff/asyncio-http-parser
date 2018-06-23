@@ -62,6 +62,7 @@ class HTTPRequestState(enum.Enum):
 @dataclass
 class HTTPParser(asyncio.BufferedProtocol):
 
+    loop: asyncio.BaseEventLoop
     buffer_data: bytearray = bytearray(100)
     request_state: HTTPRequestState = HTTPRequestState.CONNECTING
     headers: List = None
