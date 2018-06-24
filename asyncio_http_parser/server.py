@@ -12,7 +12,7 @@ import http
 from email.utils import formatdate
 
 
-from .parser import HTTPBufferedProtocol
+from .protocol import HTTPBufferedProtocol
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()

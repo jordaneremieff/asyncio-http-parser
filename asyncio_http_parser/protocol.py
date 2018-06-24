@@ -17,6 +17,7 @@ parsing_ended = ContextVar("parsing_ended", default=False)
 
 
 def set_header(data):
+
     _request_headers = request_headers.get()
     _parsing_data = parsing_data.get()
 
@@ -27,8 +28,9 @@ def set_header(data):
 
     _parsing_data = parsing_data.get()
 
-    for i in range(len(_parsing_data)):
+    _pos = None
 
+    for i in range(len(_parsing_data)):
         n = i + 1
         chunk = _parsing_data[i:n]
 
@@ -38,21 +40,19 @@ def set_header(data):
             _header = _parsing_data[:_pos]
 
             if _request_headers is None:
-                print(_header)
                 request_info.set(_header)
-                # 'GET / HTTP/1.1\r\n'
                 request_headers.set([])
-                parsing_data.set(_parsing_data[_pos:])
                 _request_headers = request_headers.get()
             else:
                 _request_headers.append(_header)
                 request_headers.set(_request_headers)
-                parsing_data.set(_parsing_data[_pos:])
 
-            _parsing_data = parsing_data.get()
-            look_ahead = _parsing_data[:2]
-            if look_ahead == b"\r\n":
-                parsing_ended.set(True)
+    if _pos is not None:
+        parsing_data.set(_parsing_data[_pos:])
+        _parsing_data = parsing_data.get()
+        look_ahead = _parsing_data[:2]
+        if look_ahead == b"":
+            parsing_ended.set(True)
 
 
 class HTTPRequestState(enum.Enum):
