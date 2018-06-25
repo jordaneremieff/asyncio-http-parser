@@ -11,56 +11,61 @@ logger = logging.getLogger()
 
 
 parsing_data = ContextVar("parsing_data", default=None)
+parsing_header = ContextVar("parsing_header", default=b"")
+last_header = ContextVar("last_header", default=b"")
+headers_received = ContextVar("headers_received", default=False)
 request_headers = ContextVar("request_headers", default=None)
 request_info = ContextVar("request_info", default=b"")
-parsing_ended = ContextVar("parsing_ended", default=False)
 
 
-def set_header(data):
+def parse_headers(data):
 
-    _request_headers = request_headers.get()
+    # Append new buffer data to existing parsing context data
     _parsing_data = parsing_data.get()
+    if _parsing_data is not None:
+        data = _parsing_data + data
 
-    if _parsing_data is None:
-        parsing_data.set(data)
-    else:
-        parsing_data.set(_parsing_data + data)
+    for i in range(len(data)):
+        _parsing_header = parsing_header.get()
 
-    _parsing_data = parsing_data.get()
+        b = data[i:i + 1]
+        _parsing_header += b
 
-    _pos = None
+        if b == b"\n":
+            _request_headers = request_headers.get()
+            _last_header = last_header.get()
 
-    for i in range(len(_parsing_data)):
-        n = i + 1
-        chunk = _parsing_data[i:n]
-
-        if chunk == b"\r":
-            _pos = n + 1
-
-            _header = _parsing_data[:_pos]
-
+            # Set the HTTP method and version
             if _request_headers is None:
-                request_info.set(_header)
+                request_info.set(_parsing_header)
                 request_headers.set([])
-                _request_headers = request_headers.get()
-            else:
-                _request_headers.append(_header)
+
+            elif _parsing_header == b"\r\n":
+                # The previous header was the final one
+                _last_header += _parsing_header
+                _request_headers.append(_last_header)
+                request_headers.set(_request_headers)
+                # Inform the protocol
+                headers_received.set(True)
+
+            elif _last_header is not None:
+                _request_headers.append(_last_header)
                 request_headers.set(_request_headers)
 
-    if _pos is not None:
-        parsing_data.set(_parsing_data[_pos:])
-        _parsing_data = parsing_data.get()
-        look_ahead = _parsing_data[:2]
-        if look_ahead == b"":
-            parsing_ended.set(True)
+            last_header.set(_parsing_header)
+            parsing_header.set(b"")
+
+        else:
+            parsing_header.set(_parsing_header)
+
+    if len(data):
+        parsing_data.set(data)
 
 
 class HTTPRequestState(enum.Enum):
 
     CONNECTING = 0
     RECEIVING = 1
-    WRITE_PAUSED = 2
-    READ_PAUSED = 3
 
 
 @dataclass
@@ -97,38 +102,32 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
 
     def buffer_updated(self, nbytes: int) -> None:
         data = self.buffer_data[:nbytes]
-        print(data)
-        print(self.request_state)
 
         if self.request_state is HTTPRequestState.CONNECTING:
+            parse_headers(data)
 
-            set_header(data)
-            # print(data)
-            _parsing_ended = parsing_ended.get()
-
-            if _parsing_ended:
-                self.state = HTTPRequestState.RECEIVING
+            if headers_received.get():
+                self.request_state = HTTPRequestState.RECEIVING
                 self.request_headers = request_headers.get()
                 self.request_info = request_info.get()
-
                 self.on_headers_complete()
 
         if self.request_state is HTTPRequestState.RECEIVING:
             print("Receiving")
             self.on_body(data)
 
-    async def drain(self) -> None:
-        await self.drain_waiter.wait()
+    # async def drain(self) -> None:
+    #     await self.drain_waiter.wait()
 
-    def pause_writing(self) -> None:
-        assert not self.write_paused, "Invalid write state"
-        self.write_paused = True
-        self.drain_waiter.clear()
+    # def pause_writing(self) -> None:
+    #     assert not self.write_paused, "Invalid write state"
+    #     self.write_paused = True
+    #     self.drain_waiter.clear()
 
-    def resume_writing(self) -> None:
-        assert self.write_paused, "Invalid write state"
-        self.write_paused = False
-        self.drain_waiter.set()
+    # def resume_writing(self) -> None:
+    #     assert self.write_paused, "Invalid write state"
+    #     self.write_paused = False
+    #     self.drain_waiter.set()
 
     def on_headers_complete(self):
         """Implemented on protocol"""
@@ -160,17 +159,9 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
                 sep = header.index(b": ")
             except Exception as e:  # todo: handle this in parsing
                 print(e)
-                print(header)
+                # print(header)
             else:
                 end = len(header) - 2
                 header = [header[:sep], header[sep + 2:end]]
                 headers.append(header)
         return headers
-
-    # def get_http_version(self) -> str:
-
-    # def should_keep_alive(self) -> bool:
-
-    # def should_upgrade(self) -> bool:
-
-    # def get_method(self) -> bytes:
