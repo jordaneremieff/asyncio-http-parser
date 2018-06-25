@@ -12,7 +12,7 @@ logger = logging.getLogger()
 
 parsing_data = ContextVar("parsing_data", default=None)
 parsing_header = ContextVar("parsing_header", default=b"")
-last_header = ContextVar("last_header", default=b"")
+next_header = ContextVar("next_header", default=b"")
 headers_received = ContextVar("headers_received", default=False)
 request_headers = ContextVar("request_headers", default=None)
 request_info = ContextVar("request_info", default=b"")
@@ -44,18 +44,21 @@ def parse_headers(data):
                 request_headers.set([])
             else:
 
-                _last_header = last_header.get()
+                _next_header = next_header.get()
+
                 if _parsing_header == b"\r\n":
-                    # The previous header was the final one
-                    _last_header += _parsing_header
-                    _request_headers.append(_last_header)
+                    # Previous header was final, inform the protocol
+                    _next_header += _parsing_header
+                    _request_headers.append(_next_header)
                     request_headers.set(_request_headers)
-                    # Inform the protocol
                     headers_received.set(True)
-                elif _last_header is not None and _last_header != b"":
-                    _request_headers.append(_last_header)
+
+                elif _next_header is not None and _next_header != b"":
+                    _request_headers.append(_next_header)
                     request_headers.set(_request_headers)
-                last_header.set(_parsing_header)
+
+                next_header.set(_parsing_header)
+
             parsing_header.set(b"")
         else:
             parsing_header.set(_parsing_header)
