@@ -15,7 +15,6 @@ parsing_header = ContextVar("parsing_header", default=b"")
 parsing_sep_pos = ContextVar("parsing_sep_pos", default=None)
 next_sep_pos = ContextVar("next_sep_pos", default=None)
 next_header = ContextVar("next_header", default=b"")
-
 request_info = ContextVar("request_info", default=None)
 
 
@@ -115,31 +114,33 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
 
         if self.connection_state is HTTPConnectionState.CONNECTED:
             parse_headers(data, protocol=self)
-            print(self.headers)
+
         elif self.connection_state is HTTPConnectionState.HEADERS_RECEIVED:
             self.on_headers_complete()
+
         elif self.connection_state is HTTPConnectionState.READING_BODY:
             self.on_body(data)
+
+    async def drain(self) -> None:
+        await self.drain_waiter.wait()
+
+    def pause_writing(self) -> None:
+        assert not self.write_paused, "Invalid write state"
+        self.write_paused = True
+        self.drain_waiter.clear()
+
+    def resume_writing(self) -> None:
+        assert self.write_paused, "Invalid write state"
+        self.write_paused = False
+        self.drain_waiter.set()
 
     def on_header(self, header: bytes, value: bytes):
         self.headers.append((header, value))
 
-    # async def drain(self) -> None:
-    #     await self.drain_waiter.wait()
-
-    # def pause_writing(self) -> None:
-    #     assert not self.write_paused, "Invalid write state"
-    #     self.write_paused = True
-    #     self.drain_waiter.clear()
-
-    # def resume_writing(self) -> None:
-    #     assert self.write_paused, "Invalid write state"
-    #     self.write_paused = False
-    #     self.drain_waiter.set()
-
     def on_headers_complete(self):
-        """Implemented on protocol"""
-        # print(self.headers)
+        """Called when all headers are consumed"""
 
     def on_body(self, data):
-        """Implemented on protocol"""
+        """Called when the buffer receives body data"""
+
+
