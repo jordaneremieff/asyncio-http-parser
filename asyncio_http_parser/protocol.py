@@ -39,15 +39,14 @@ def parse_headers(data):
 
             if _request_headers is None:
                 request_info.set(_parsing_header)
-                # parsing_header.set(b"")
                 _parsing_header = parsing_header.get()
                 request_headers.set([])
-            else:
 
+            else:
                 _next_header = next_header.get()
 
                 if _parsing_header == b"\r\n":
-                    # Previous header was final, inform the protocol
+                    # Next header is final, inform the protocol
                     _next_header += _parsing_header
                     _request_headers.append(_next_header)
                     request_headers.set(_request_headers)
@@ -67,7 +66,7 @@ def parse_headers(data):
         parsing_data.set(data)
 
 
-class HTTPRequestState(enum.Enum):
+class HTTPConnectionState(enum.Enum):
 
     CONNECTING = 0
     RECEIVING = 1
@@ -79,7 +78,7 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
     transport: asyncio.BaseTransport
     loop: asyncio.BaseEventLoop
     buffer_data: bytearray = None
-    request_state: HTTPRequestState = HTTPRequestState.CONNECTING
+    connection_state: HTTPConnectionState = HTTPConnectionState.CONNECTING
     request_headers: List = None
     request_info: bytes = None
     scheme: str = "http"
@@ -108,17 +107,17 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
     def buffer_updated(self, nbytes: int) -> None:
         data = self.buffer_data[:nbytes]
 
-        if self.request_state is HTTPRequestState.CONNECTING:
+        if self.connection_state is HTTPConnectionState.CONNECTING:
             parse_headers(data)
 
             if headers_received.get():
-                self.request_state = HTTPRequestState.RECEIVING
+                self.connection_state = HTTPConnectionState.RECEIVING
                 self.request_headers = request_headers.get()
                 print(self.request_headers)
                 self.request_info = request_info.get()
                 self.on_headers_complete()
 
-        if self.request_state is HTTPRequestState.RECEIVING:
+        if self.connection_state is HTTPConnectionState.RECEIVING:
             print("Receiving")
             self.on_body(data)
 
