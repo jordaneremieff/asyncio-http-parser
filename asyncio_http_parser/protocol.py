@@ -2,7 +2,7 @@ import enum
 import logging
 import asyncio
 from typing import List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextvars import ContextVar
 
 
@@ -12,15 +12,21 @@ logger = logging.getLogger()
 
 parsing_data = ContextVar("parsing_data", default=None)
 parsing_header = ContextVar("parsing_header", default=b"")
+parsing_sep_pos = ContextVar("parsing_sep_pos", default=None)
+next_sep_pos = ContextVar("next_sep_pos", default=None)
 next_header = ContextVar("next_header", default=b"")
-headers_received = ContextVar("headers_received", default=False)
-request_headers = ContextVar("request_headers", default=None)
-request_info = ContextVar("request_info", default=b"")
+
+request_info = ContextVar("request_info", default=None)
 
 
-def parse_headers(data):
+class HTTPConnectionState(enum.Enum):
 
-    # Append new buffer data to existing parsing context data
+    CONNECTED = 0
+    HEADERS_RECEIVED = 1
+
+
+def parse_headers(data: bytes, protocol: asyncio.BaseProtocol) -> None:
+
     _parsing_data = parsing_data.get()
     if _parsing_data is not None:
         data = _parsing_data + data
@@ -34,29 +40,35 @@ def parse_headers(data):
         _parsing_header += b
         data_len -= 1
 
+        _request_info = request_info.get()
+
+        if b == b":":
+            _parsing_sep_pos = parsing_sep_pos.get()
+            if _parsing_sep_pos is None and _request_info is not None:
+                parsing_sep_pos.set(len(_parsing_header))
+
         if b == b"\n":
-            _request_headers = request_headers.get()
 
-            if _request_headers is None:
+            if request_info.get() is None:
                 request_info.set(_parsing_header)
-                _parsing_header = parsing_header.get()
-                request_headers.set([])
-
             else:
                 _next_header = next_header.get()
 
+                if _next_header is not None and _next_header != b"":
+                    _next_sep_pos = next_sep_pos.get()
+                    _current_header = _next_header[:_next_sep_pos - 1]
+                    _current_value = _next_header[
+                        _next_sep_pos + 1:len(_next_header) - 2
+                    ]
+                    protocol.on_header(_current_header, _current_value)
+
                 if _parsing_header == b"\r\n":
-                    # Next header is final, inform the protocol
-                    _next_header += _parsing_header
-                    _request_headers.append(_next_header)
-                    request_headers.set(_request_headers)
-                    headers_received.set(True)
+                    protocol.connection_state = HTTPConnectionState.HEADERS_RECEIVED
 
-                elif _next_header is not None and _next_header != b"":
-                    _request_headers.append(_next_header)
-                    request_headers.set(_request_headers)
-
+                _parsing_sep_pos = parsing_sep_pos.get()
+                next_sep_pos.set(_parsing_sep_pos)
                 next_header.set(_parsing_header)
+                parsing_sep_pos.set(None)
 
             parsing_header.set(b"")
         else:
@@ -66,20 +78,14 @@ def parse_headers(data):
         parsing_data.set(data)
 
 
-class HTTPConnectionState(enum.Enum):
-
-    CONNECTING = 0
-    RECEIVING = 1
-
-
 @dataclass
 class HTTPBufferedProtocol(asyncio.BufferedProtocol):
 
     transport: asyncio.BaseTransport
     loop: asyncio.BaseEventLoop
     buffer_data: bytearray = None
-    connection_state: HTTPConnectionState = HTTPConnectionState.CONNECTING
-    request_headers: List = None
+    connection_state: HTTPConnectionState = HTTPConnectionState.CONNECTED
+    headers: List = field(default_factory=list)
     request_info: bytes = None
     scheme: str = "http"
     http_version: str = "1.1"
@@ -107,22 +113,16 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
     def buffer_updated(self, nbytes: int) -> None:
         data = self.buffer_data[:nbytes]
 
-        if self.connection_state is HTTPConnectionState.CONNECTING:
-            parse_headers(data)
-
-            if headers_received.get():
-                self.connection_state = HTTPConnectionState.RECEIVING
-                self.request_headers = request_headers.get()
-                print(self.request_headers)
-                self.request_info = request_info.get()
-                self.on_headers_complete()
-
-        if self.connection_state is HTTPConnectionState.RECEIVING:
-            print("Receiving")
+        if self.connection_state is HTTPConnectionState.CONNECTED:
+            parse_headers(data, protocol=self)
+            print(self.headers)
+        elif self.connection_state is HTTPConnectionState.HEADERS_RECEIVED:
+            self.on_headers_complete()
+        elif self.connection_state is HTTPConnectionState.READING_BODY:
             self.on_body(data)
 
-    def on_header(self, name, value):
-        pass
+    def on_header(self, header: bytes, value: bytes):
+        self.headers.append((header, value))
 
     # async def drain(self) -> None:
     #     await self.drain_waiter.wait()
@@ -139,38 +139,7 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
 
     def on_headers_complete(self):
         """Implemented on protocol"""
-        #print(self.headers)
+        # print(self.headers)
 
     def on_body(self, data):
         """Implemented on protocol"""
-
-    def get_request_info(self) -> Tuple[bytes, bytes]:
-        # print(_request_info)
-        try:
-            sep = self.request_info.index(b" /")
-        except Exception as e:  # todo: fix this then remove exception
-            for i in range(50):
-                print(e)
-                print(self.request_info)
-            method, http_version = b"", b""
-        else:
-            end = len(self.request_info) - 2
-            method, http_version = self.request_info[:sep], self.request_info[
-                sep + 3:end
-            ]
-        return method, http_version
-
-    def get_headers(self) -> List[List[bytes]]:
-        headers = []
-        for header in self.request_headers:
-            # print(header)
-            try:
-                sep = header.index(b": ")
-            except Exception as e:  # todo: handle this in parsing
-                print(e)
-                # print(header)
-            else:
-                end = len(header) - 2
-                header = [header[:sep], header[sep + 2:end]]
-                headers.append(header)
-        return headers
