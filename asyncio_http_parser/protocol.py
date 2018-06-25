@@ -52,11 +52,9 @@ def parse_headers(data):
                     request_headers.set(_request_headers)
                     # Inform the protocol
                     headers_received.set(True)
-                elif _last_header is not None:
-                    # print(_last_header)
+                elif _last_header is not None and _last_header != b"":
                     _request_headers.append(_last_header)
                     request_headers.set(_request_headers)
-
                 last_header.set(_parsing_header)
             parsing_header.set(b"")
         else:
@@ -113,7 +111,7 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
             if headers_received.get():
                 self.request_state = HTTPRequestState.RECEIVING
                 self.request_headers = request_headers.get()
-                # print(self.request_headers)
+                print(self.request_headers)
                 self.request_info = request_info.get()
                 self.on_headers_complete()
 
