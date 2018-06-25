@@ -25,40 +25,44 @@ def parse_headers(data):
     if _parsing_data is not None:
         data = _parsing_data + data
 
-    for i in range(len(data)):
+    data_len = len(data)
+
+    for i in range(data_len):
         _parsing_header = parsing_header.get()
 
         b = data[i:i + 1]
         _parsing_header += b
+        data_len -= 1
 
         if b == b"\n":
             _request_headers = request_headers.get()
-            _last_header = last_header.get()
 
-            # Set the HTTP method and version
             if _request_headers is None:
                 request_info.set(_parsing_header)
+                # parsing_header.set(b"")
+                _parsing_header = parsing_header.get()
                 request_headers.set([])
+            else:
 
-            elif _parsing_header == b"\r\n":
-                # The previous header was the final one
-                _last_header += _parsing_header
-                _request_headers.append(_last_header)
-                request_headers.set(_request_headers)
-                # Inform the protocol
-                headers_received.set(True)
+                _last_header = last_header.get()
+                if _parsing_header == b"\r\n":
+                    # The previous header was the final one
+                    _last_header += _parsing_header
+                    _request_headers.append(_last_header)
+                    request_headers.set(_request_headers)
+                    # Inform the protocol
+                    headers_received.set(True)
+                elif _last_header is not None:
+                    # print(_last_header)
+                    _request_headers.append(_last_header)
+                    request_headers.set(_request_headers)
 
-            elif _last_header is not None:
-                _request_headers.append(_last_header)
-                request_headers.set(_request_headers)
-
-            last_header.set(_parsing_header)
+                last_header.set(_parsing_header)
             parsing_header.set(b"")
-
         else:
             parsing_header.set(_parsing_header)
 
-    if len(data):
+    if data_len > 0:
         parsing_data.set(data)
 
 
@@ -109,12 +113,16 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
             if headers_received.get():
                 self.request_state = HTTPRequestState.RECEIVING
                 self.request_headers = request_headers.get()
+                # print(self.request_headers)
                 self.request_info = request_info.get()
                 self.on_headers_complete()
 
         if self.request_state is HTTPRequestState.RECEIVING:
             print("Receiving")
             self.on_body(data)
+
+    def on_header(self, name, value):
+        pass
 
     # async def drain(self) -> None:
     #     await self.drain_waiter.wait()
@@ -131,6 +139,7 @@ class HTTPBufferedProtocol(asyncio.BufferedProtocol):
 
     def on_headers_complete(self):
         """Implemented on protocol"""
+        #print(self.headers)
 
     def on_body(self, data):
         """Implemented on protocol"""
